@@ -1,6 +1,6 @@
 # Shaner Consulting — AI Skill Files
 
-These are Claude Code skill files I built for my AI consulting practice. They encode a framework I call **Process + Context** — the idea that every successful AI implementation lives at the intersection of a clear process (the recipe steps) and complete context (the ingredients).
+These are Claude Code skill files I built for my AI consulting practice. They encode a framework I call **[Process + Context](https://medium.com/@davidmshaner/where-does-the-sidewalk-end-c3c2260a41bd)** — the idea that every successful AI implementation lives at the intersection of a clear process (the recipe steps) and complete context (the ingredients).
 
 I'm sharing them because a few people asked to try them. They're evolving as I go.
 

@@ -39,6 +39,21 @@ echo "REPO:     $_REPO"
 echo "BRANCH:   $_BRANCH"
 echo "CWD:      $(pwd)"
 echo "STARTED:  $(date '+%Y-%m-%d %H:%M')"
+# Learnings + telemetry init (gstack-compatible)
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+else
+  echo "LEARNINGS: 0"
+fi
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+echo "TELEMETRY: ${_TEL:-off}"
+mkdir -p ~/.gstack/analytics
+if [ "${_TEL:-off}" != "off" ]; then
+  echo '{"skill":"shaner-consulting","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'"$_REPO"'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+fi
 echo "════════════════════════════════════════"
 ```
 
@@ -51,6 +66,27 @@ echo "════════════════════════�
 4. Check if `.claude/skills/` exists in the project — this signals whether the user already has skill infrastructure, which matters in Step 4.
 
 This context informs every step that follows. Hold it in mind.
+
+## Prior Learnings
+
+Search for relevant learnings from previous sessions:
+
+```bash
+_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "false")
+if [ "$_CROSS_PROJ" = "true" ]; then
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --type pitfall,pattern,architecture --limit 10 --cross-project 2>/dev/null || true
+else
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --type pitfall,pattern,architecture --limit 10 2>/dev/null || true
+fi
+```
+
+If learnings are found, incorporate them into your approach. When a finding from this session
+matches a past learning, display:
+
+**"Prior learning applied: [key] (confidence N/10, from [date])"**
+
+This makes the compounding visible — the user should see that the framework is getting
+smarter across sessions.
 
 ---
 
@@ -635,3 +671,84 @@ FORK:       [A: Recurring | B: One-time | C: Blend]
 IMPROVEMENTS: [count] items saved to /improvement
 ════════════════════════════════════════
 ```
+
+---
+
+## Capture Learnings
+
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions. This runs at the end of every session
+regardless of how far through the steps you got.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"shaner-consulting","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+```
+
+**Types and when to use them:**
+- `pitfall` — A mistake or wrong assumption that wasted time. Example: "User said 'automate invoices' but the real problem was vendor relationship management — the invoices were a symptom."
+- `pattern` — A reusable approach that worked well. Example: "For finance repos, start the process table with the money flow (in→categorize→out) rather than the reporting flow."
+- `architecture` — A structural decision worth remembering. Example: "Mercury client belongs in context/, not as a standalone helper — it feeds every process."
+- `preference` — A user-stated preference about how they work. Example: "This user prefers to see raw API output before any summarization."
+- `gate-violation` — A hard gate that was skipped or nearly skipped. Example: "Attempted to build Process 2 before Process 1 was validated — caught by user."
+
+**Sources:** `observed` (you saw it happen), `user-stated` (user told you), `inferred` (deduction from evidence).
+
+**What to log (guidance):**
+- Log gate violations — every time a hard gate was nearly or actually skipped
+- Log process/context misclassifications that surprised you (e.g., something you thought was data that turned out to be context)
+- Log when the fork classification (A/B/C) was wrong on first attempt
+- Log when the two-pass investigation in Step 2 found something the first pass missed
+- Do NOT log things that are obvious from the skill file itself (e.g., "Step 1 asks three questions")
+
+**Multiple learnings are fine.** If three things surprised you, log three entries.
+
+### Learnings Verification (HARD GATE)
+
+After logging learnings, verify they were actually written:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
+_NEW_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+_ADDED=$(( ${_NEW_COUNT:-0} - ${_LEARN_COUNT:-0} ))
+echo "LEARNINGS ADDED THIS SESSION: $_ADDED"
+if [ "$_ADDED" -eq 0 ]; then
+  echo "⚠️  WARNING: No learnings captured. Every session should produce at least one learning."
+fi
+```
+
+**If zero learnings were added:** STOP. Ask yourself what you learned during this session. Every session produces at least one of:
+- A gate that was nearly violated (type: `gate-violation`)
+- A process/context classification that surprised you (type: `pattern` or `pitfall`)
+- A user preference you didn't expect (type: `preference`)
+- An architectural insight about the project (type: `architecture`)
+
+If you genuinely cannot identify a single learning, log one with type `pattern` and key `clean-session` noting what went smoothly and why — that's still useful signal for future sessions.
+
+**Do NOT proceed to Telemetry until at least one learning is logged.**
+
+---
+
+## Telemetry (run last)
+
+After the skill workflow completes (success, error, or abort), log the telemetry event.
+This captures session duration and outcome for tracking skill effectiveness over time.
+
+Run this bash:
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _SESSION_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+if [ "${_TEL:-off}" != "off" ]; then
+  echo '{"skill":"shaner-consulting","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+  if [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
+    ~/.claude/skills/gstack/bin/gstack-telemetry-log \
+      --skill "shaner-consulting" --duration "$_TEL_DUR" --outcome "OUTCOME" \
+      --session-id "$_SESSION_ID" 2>/dev/null &
+  fi
+fi
+```
+
+Replace `OUTCOME` with success/error/abort based on how the session ended.
+If you cannot determine the outcome, use "unknown".

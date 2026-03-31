@@ -63,15 +63,26 @@ done
 echo ""
 ```
 
-**After printing the header**, immediately fire off the inbox agent processes in the background using Bash with `run_in_background: true`:
+**After printing the header**, immediately fire off background processes using Bash with `run_in_background: true`:
 
 1. `cd $INBOX_DIR && python3 processes/01_lifecycle/run.py all`
 2. `cd $INBOX_DIR && python3 processes/02_waiting_on_me/run.py`
+3. Finance daily pipeline (runs sequentially in one background command):
+   ```bash
+   cd $REPO_ROOT/path/to/finance/agent && \
+     .venv/bin/python -m processes.client_lifecycle.01_intake && \
+     .venv/bin/python -m processes.ar_ap.01_payments && \
+     .venv/bin/python -m processes.ar_ap.02_splits && \
+     .venv/bin/python -m processes.client_lifecycle.02_invoice --dry-run && \
+     .venv/bin/python -m processes.ar_ap.03_collections --dry-run
+   ```
 
 Print:
 ```
 INBOX:    🚀 Lifecycle processing launched (background)
 INBOX:    🚀 Waiting-on-me scan launched (background)
+FINANCE:  🚀 Daily pipeline launched (background)
+            Intake → Payments → Splits → Invoice (dry) → Collections (dry)
 ```
 
 **Start building the session log.** Initialize `data/sessions/YYYY-MM-DD.md` with:
@@ -169,11 +180,12 @@ Read `projects/offline/internal/company-os/vto/weekly_alignment.md` and display 
 ⚠️  "This Week's Focus" is empty. What are the 1-3 things that matter most this week?
 ```
 
-**Inbox agent results:** If the background processes have completed by now, summarize:
+**Background results:** If the background processes have completed by now, summarize:
 - Lifecycle: how many threads processed, how many drafts created
 - Waiting-on-me: how many threads need attention, top 3 subjects
+- Finance: Mercury balance, outstanding invoices, any overdue items, pending splits
 
-If not finished yet, note: "Inbox agent still running — results will appear when done."
+If any aren't finished yet, note which are still running — results will appear when done.
 
 Use **AskUserQuestion** with this structure:
 

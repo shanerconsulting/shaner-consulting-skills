@@ -207,15 +207,19 @@ Write all of this as a structured document:
 
 ### Step 1: [Process Title]
 - **What it does:** [plain English]
-- **Expected output:** [concrete description]
-- **Handoff intelligence to Step 2:** [what understanding must be passed]
+- **Expected input shape:** [what data/records come in, expected fields, expected counts]
+- **Expected output shape:** [what data/records come out, expected fields, expected counts]
+- **Sources consulted:** [what systems, files, APIs this step reads from]
+- **Expected handoff intelligence to Step 2:** [what understanding must be passed]
 - **How to verify:** [what to check]
 - **Status:** PENDING
 
 ### Step 2: [Process Title]
 - **What it does:** [plain English]
-- **Expected output:** [concrete description]
-- **Handoff intelligence to Step 3:** [what understanding must be passed]
+- **Expected input shape:** [what data/records come in — should match Step 1 output shape]
+- **Expected output shape:** [what data/records come out, expected fields, expected counts]
+- **Sources consulted:** [what systems, files, APIs this step reads from]
+- **Expected handoff intelligence to Step 3:** [what understanding must be passed]
 - **How to verify:** [what to check]
 - **Status:** PENDING
 
@@ -260,19 +264,63 @@ HANDOFF TO STEP [N+1]: [what must be present]
 
 Run the step. Dry-run first if the process supports it (`--dry-run`, `DRY_RUN=true`, etc.). Then run for real.
 
-### 2.3 Show Output
+### 2.3 Snapshot Data Shape
+
+**This is the n8n node inspector for first-run.** After executing the step, capture what went in and what came out — not the full raw data, but the **shape**: field names, record counts, a representative sample record, nulls, gaps, and anything skipped.
+
+**Why this exists:** A step can execute without errors and still silently degrade everything downstream because its input was incomplete or its output had gaps. A phone number that's null, a source that was skipped, a record count of zero where you expected twelve — these don't crash. They propagate. The data shape snapshot catches them at the boundary instead of three steps later.
+
+For each step, capture:
+
+```
+═══ STEP [N]: [Title] — DATA SHAPE ═══
+
+INPUT:
+  [collection_name]: [N] records
+  sample: { [field]: [value], [field]: [value], ... }
+  [any relevant config, flags, or sources that were consulted]
+
+OUTPUT:
+  [collection_name]: [N] records
+  sample: { [field]: [value], [field]: [value], ... }
+  [derived counts, categories, or groupings]
+
+SKIPPED / UNAVAILABLE:
+  [source/path]: [why it was skipped]
+
+GAPS:
+  [field]: [N] records with null/missing values → [downstream consequence]
+═══════════════════════════════════════
+```
+
+**Rules for the snapshot:**
+
+1. **Sample records must be real.** Use an actual record from the run, not a template. Pick a representative one, not the cleanest one — if most records have gaps, show a record with gaps.
+2. **If a step iterates over records** (contacts, prospects, invoices), show the count AND a sample of both a complete record and an incomplete record (if any exist). The contrast makes gaps obvious.
+3. **SKIPPED is mandatory.** If the step consulted 5 sources and 1 was unavailable, that's a SKIPPED entry even if the step "succeeded." Skipped sources are invisible blind spots.
+4. **GAPS is mandatory.** Count nulls per field. "phone: 10 of 22 records null → iMessage not searchable for these contacts" is the kind of gap that catches the Taylor Cotner problem.
+5. **Save to the trace file** (see Phase 4). The snapshot is appended to the trace file after each step so the full trace is available for review after the run.
+
+**Present the snapshot to the user in chat** using AskUserQuestion:
+
+"Here's the data shape for Step [N]. [Highlight any SKIPPED or GAPS entries.] Does this look right? Anything surprising?"
+
+**HARD GATE:** The user must confirm the data shape before proceeding to the gate check. If they spot a gap ("why is phone null for Taylor?"), that's a FAIL — enter the Diagnose & Fix cycle.
+
+### 2.4 Show Output
 
 Show the user the **actual output** — not a summary, not your interpretation. The raw output. If it's too long, show the first meaningful chunk and tell the user where to find the rest.
 
-### 2.4 Gate Check
+### 2.5 Gate Check
 
-Three questions, all must pass:
+Four questions, all must pass:
 
 1. **Purpose check:** Does this output accomplish what the README says this step should do?
-2. **Handoff intelligence check:** Is the understanding present that the next step needs? Not just the data — the *why*.
-3. **Next-step readiness check:** If you handed this output to Step N+1 right now, would Step N+1 have everything it needs to succeed?
+2. **Data shape check:** Are there unexpected nulls, zero counts, skipped sources, or missing fields that would silently degrade downstream steps? Cross-reference the GAPS and SKIPPED entries from the data shape snapshot — if any gap would cause a downstream step to produce incomplete results without erroring, this check FAILS.
+3. **Handoff intelligence check:** Is the understanding present that the next step needs? Not just the data — the *why*.
+4. **Next-step readiness check:** If you handed this output to Step N+1 right now, would Step N+1 have everything it needs to succeed?
 
-### 2.5 Outcome
+### 2.6 Outcome
 
 **PASS:** Print a status receipt and move to the next step.
 
@@ -281,6 +329,7 @@ Three questions, all must pass:
 │ STEP [N]: [Title]                   │
 │ STATUS: PASS                        │
 │ EVIDENCE: [what the output showed]  │
+│ DATA SHAPE: [confirmed by user]     │
 │ HANDOFF: [intelligence confirmed]   │
 │ NEXT: Step [N+1] — [title]          │
 └─────────────────────────────────────┘
@@ -290,7 +339,8 @@ Three questions, all must pass:
 
 ### Phase 2 Exit Criteria
 - [ ] Every step has been executed with real data
-- [ ] Every step has passed its gate check (purpose + handoff intelligence + next-step readiness)
+- [ ] Every step has a data shape snapshot saved to the trace file and confirmed by user
+- [ ] Every step has passed its gate check (purpose + data shape + handoff intelligence + next-step readiness)
 - [ ] Status receipts printed for every step
 
 **HARD GATE:** Every step must pass before this phase is complete. If a step cannot be fixed after 3 attempts, escalate to the user.
@@ -388,6 +438,8 @@ Save to `data/first-run-report-YYYY-MM-DD.md` in the project directory.
 
 ### Report Format
 
+The report is an **observable trace** — not just a scorecard. Anyone reading it after the fact should be able to reconstruct what data flowed through each step, what was skipped, and where gaps existed. Think of it as the n8n execution log: you can click any node and see inputs/outputs.
+
 ```markdown
 # First Run Validation Report
 
@@ -399,12 +451,28 @@ Save to `data/first-run-report-YYYY-MM-DD.md` in the project directory.
 ## Summary
 [2-3 sentences: what happened, how many steps, how many fixes]
 
-## Step Results
+## Step Trace
 
 ### Step 1: [Title]
 - **Status:** PASS | PASS_AFTER_FIX
-- **Output:** [what the step produced]
-- **Handoff intelligence:** [confirmed / what was verified]
+
+#### Data Shape
+**Input:**
+  [collection_name]: [N] records
+  sample: { [field]: [value], ... }
+  sources consulted: [list]
+
+**Output:**
+  [collection_name]: [N] records
+  sample: { [field]: [value], ... }
+
+**Skipped:** [source/path — why] (or "none")
+**Gaps:** [field — N records null — downstream consequence] (or "none")
+
+#### Verification
+- **Purpose check:** [what the output accomplished]
+- **Data shape check:** [gaps/skips reviewed — confirmed or flagged]
+- **Handoff intelligence:** [what understanding was confirmed for next step]
 - **Fixes applied:** [none | description + classification]
 
 ### Step 2: [Title]
@@ -416,6 +484,16 @@ Save to `data/first-run-report-YYYY-MM-DD.md` in the project directory.
 |---|------|----------------|------|------------|
 | 1 | 03 | Updated prompt to include invoice reason | PROCESS | Step wasn't extracting the "why" |
 | 2 | 04 | Added SLACK_TOKEN to .env | CONTEXT | Missing credential |
+
+## Data Flow Summary
+
+A condensed view of what flowed through the full pipeline:
+
+| Step | Records In | Records Out | Skipped Sources | Gaps |
+|------|-----------|-------------|-----------------|------|
+| 1 | [N] [type] | [N] [type] | [list or none] | [field: N null] |
+| 2 | [N] [type] | [N] [type] | [list or none] | [field: N null] |
+| ... | | | | |
 
 ## Handoff Intelligence Verification
 
@@ -433,9 +511,11 @@ Save to `data/first-run-report-YYYY-MM-DD.md` in the project directory.
 
 ### Phase 4 Exit Criteria
 - [ ] Validation report written and saved
+- [ ] Every step has a data shape snapshot (input, output, skipped, gaps)
 - [ ] Every step has a documented result
 - [ ] Every fix is classified as PROCESS or CONTEXT
 - [ ] Every handoff boundary is verified
+- [ ] Data flow summary table is complete
 - [ ] Concerns and out-of-scope issues documented
 
 ---

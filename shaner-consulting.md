@@ -445,6 +445,27 @@ DURATION:   [if tracked]
 ════════════════════════════════════════
 ```
 
+#### Principle 8: Four-Bucket Directory Structure
+
+A skill directory IS a four-bucket project. The SKILL.md is the process — the recipe steps. Everything else follows the same bucket model as a repo:
+
+- `SKILL.md` = processes (steps, gates, receipts, AskUserQuestion calls)
+- `context/` = ingredients (style rules, specs, reference tables, prompt templates, angle libraries, voice guides)
+- `data/` = outputs (or a path reference to where outputs live, e.g., `../../content/`)
+- `prompts/` = anything sent to an LLM (if the skill delegates to LLM calls with structured prompts)
+
+**The rule:** The SKILL.md says `Read context/writing-style.md` — it does NOT paste the content inline. Same pattern as a Python process that imports from `context/`.
+
+**The litmus test:** If a block of text in SKILL.md is not a process step, a gate, a receipt format, or an AskUserQuestion structure — it's context. Extract it to `context/`.
+
+**Common violations (every one of these has happened):**
+- Style rules inline (writing voice, formatting rules) → `context/writing-style.md`
+- Reference tables inline (hex palettes, angle libraries) → `context/reference.md`
+- Prompt templates inline → `prompts/` or `context/prompt-templates.md`
+- Example libraries inline (post examples, voice samples) → `context/examples.md`
+
+**Line count heuristic:** If SKILL.md exceeds ~150 lines, audit for inline context. Most process-only skills are 80-150 lines. A 300+ line SKILL.md is almost certainly a monolith with context baked in.
+
 #### Applying These Principles
 
 When building a skill file in Step 5 (Implementation), use these principles as a **checklist**:
@@ -456,6 +477,7 @@ When building a skill file in Step 5 (Implementation), use these principles as a
 - [ ] Each phase ends with a status receipt (Principle 5)
 - [ ] Scope boundaries are defined (Principle 6)
 - [ ] Completion report format is defined (Principle 7)
+- [ ] Skill directory follows four-bucket structure: SKILL.md = process only, context/ = ingredients, no inline reference content (Principle 8)
 
 **NOTE:** These principles apply when the implementation target is a Claude Code skill file. They do NOT apply to every Path A (recurring process) outcome. A Python cron job doesn't need AskUserQuestion formatting. A Notion workflow doesn't need a preamble. Only apply these when the thing being built is a SKILL.md that lives in `.claude/skills/`.
 
@@ -486,6 +508,22 @@ Report the audit as a table:
 | `logs/` | logs/ (top-level) | data/logs/ | Move — logs are data by definition |
 
 **Fix every misplacement before moving to Phase 2.** This is where the rot starts — if the scaffold is wrong, every process you build on top of it inherits the misclassification.
+
+**Skill Directory Audit (when target is a Claude Code Skill):**
+After the standard file/folder audit, do a CONTENT audit of SKILL.md itself. The standard audit checks whether files are in the right folders — but for skills, the monolith failure mode is context baked into the process file itself.
+
+For each section of SKILL.md, ask: "Is this a process step (an instruction telling Claude what to do), or is this reference content (style rules, specs, tables, examples, templates, prompt payloads)?"
+
+Reference content must be extracted to `context/` files. Report the audit as a table:
+
+| SKILL.md Section | Type | Action |
+|---|---|---|
+| Lines 12-30: Phase 1 — Gather Sources | Process | Keep — it's a step |
+| Lines 45-90: Writing Style Rules | Context | Extract to `context/writing-style.md` |
+| Lines 91-120: Image Palette & Hex Codes | Context | Extract to `context/image-style.md` |
+| Lines 150-180: LLM Prompt for Draft | Prompt | Extract to `prompts/draft-generation.md` |
+
+After extraction, each removed section is replaced with a single line: `Read context/writing-style.md for the style rules.`
 
 **Phase 2: Build processes one at a time, driven by pain.** Don't necessarily go in order (1, 2, 3...) unless absolutely necessary. If possible, go in pain order — the thing that hurts most gets built first.
 
@@ -522,11 +560,29 @@ If a plan groups all processes into a single phase, it has failed the Phase 2 Pl
 
 **Phase 4: Approve → Autonomous.** Ensure that a fallback manual approval layer exists before going fully autonomous.
 
+### Plan Self-Review Checklist (HARD GATE — run before presenting plan to user)
+
+After writing the plan but BEFORE presenting it to the user, review every phase against this checklist:
+
+For EACH phase in the plan, verify:
+- [ ] Does this phase end with a **HARD GATE** label?
+- [ ] Does the gate require **real-data validation** (not "we'll test later")?
+- [ ] Is the gate a **blocking condition** for the next phase (not a suggestion)?
+- [ ] If testing is mentioned anywhere as a task, is it ALSO a gate?
+- [ ] If the target is a Skill: does the plan scaffold a skill directory with `context/` for reference content? A plan that produces a 200+ line SKILL.md with inline style rules, specs, or templates has failed the four-bucket model.
+
+**RED FLAG: Testing as line item.** If any phase mentions "test" or "validate" as a bullet point inside a phase but NOT as the phase's exit gate, the plan has the #1 failure mode — testing as afterthought. Testing is not a task. Testing is the EXIT CONDITION of the phase. The phase isn't done when the code is written. The phase is done when the output has been validated against real data and confirmed by the user. If you catch yourself writing "test X" as step 5 of 7, STOP — restructure so that step 5 IS the hard gate.
+
+**RED FLAG: Monolith skill file.** If the plan for a Skill target produces a single SKILL.md with no `context/` folder, and the SKILL.md contains reference content (style guides, spec tables, prompt templates, example libraries), the plan has the #2 failure mode — context baked into process. The SKILL.md should contain ONLY process steps, gates, and receipts. Everything else goes in `context/`. If you catch yourself writing a style guide inside a SKILL.md, STOP — extract it to `context/style.md` and replace it with a `Read context/style.md` instruction.
+
+If the checklist fails, fix the plan before presenting it. Do NOT present a plan that fails self-review and ask the user to catch the problem — that's the agent's job.
+
 ### Gotcha
 Separating out "helpers" and "context" is a gotcha. Helpers like `mercury_client.py` ARE context.
 
 ### Step 4 Exit Criteria
 - [ ] Plan file created in Plan Mode
+- [ ] Plan passed the Plan Self-Review Checklist (all phases have hard gates with real-data validation)
 - [ ] Plan includes Phase 1.5 (Bucket Audit) between Scaffold and Build
 - [ ] Plan follows the structure: Scaffold → Bucket Audit → Build by pain → Wire runtime → Approve → Autonomous
 - [ ] Phase 2 is structured as individual sub-phases per process (2a, 2b, 2c...) with HARD GATES between each

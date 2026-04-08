@@ -50,6 +50,30 @@ If you don't have a Slack MCP server configured, see the [Claude Code MCP docs](
 
 Only relevant if you use multiple `gh` accounts. See `gh auth switch --help`. If you only use one account, remove the account-switching comments from `deploy.md`.
 
+## Last updated
+
+| File | Last updated | Summary |
+|------|-------------|---------|
+| `shaner-consulting.md` | 2026-04-07 | Principle 8 (four-bucket skill directories), Plan Self-Review Checklist, Skill Directory Audit |
+| `process-mapping.md` | 2026-03-30 | Initial release |
+| `first-run.md` | 2026-04-07 | Observable data shape tracing (n8n-style node inspector) |
+| `bootup.md` | 2026-03-31 | Daily finance pipeline in background processes |
+| `deploy.md` | 2026-03-31 | Initial release |
+
+## Changelog
+
+**2026-04-07**
+- `shaner-consulting.md` — Added Principle 8: four-bucket directory structure for skill files (SKILL.md = process, context/ = ingredients, data/ = outputs, prompts/ = LLM payloads). Added Plan Self-Review Checklist as a hard gate before presenting plans. Added Skill Directory Audit to Phase 1.5 for detecting monolith skill files with inline context.
+- `first-run.md` — Added observable data shape tracing: each process step now logs its actual output shape (fields, types, counts) so you can see exactly what flows between steps — inspired by n8n's node inspector.
+
+**2026-03-31**
+- `shaner-consulting.md` — Added gstack-compatible learnings and telemetry observability (session tracking, prior learnings search, post-session learning capture).
+- `bootup.md` — Added daily finance pipeline to background process checks.
+- `bootup.md`, `deploy.md` — Initial release of operational workflow skills (anonymized from production versions).
+
+**2026-03-30**
+- Initial release: `shaner-consulting.md`, `process-mapping.md`, `first-run.md`.
+
 ## Status
 
 Active and evolving. I'm sharing these with a small group to get feedback and see how they hold up outside my own workflows. If something's unclear or doesn't work, I want to know.

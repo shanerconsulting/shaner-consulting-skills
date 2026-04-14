@@ -7,9 +7,12 @@ description: |
   process document that plugs directly into Step 3 (the Process/Context Cycle).
   First principle: process is where most people fail first, and if the process isn't right,
   no amount of context will save the implementation.
+  Supports three input modes: (A) walk-through interview, (B) mining from previous Claude
+  Code sessions via JSONL extraction, or (C) both. Session mining uses a Turn Manifest to
+  ensure 100% coverage — every conversational turn is accounted for.
   Use when asked to "map a process", "clarify my process", "help me document my workflow",
-  "process mapping", or when the user describes something they do repeatedly but can't
-  articulate the steps clearly.
+  "process mapping", "mine a session", or when the user describes something they do
+  repeatedly but can't articulate the steps clearly.
   Proactively suggest when a user is trying to jump into the Shaner Consulting framework
   but clearly hasn't defined their process yet.
 ---
@@ -114,15 +117,21 @@ This means the structured interview is not strictly linear in practice. An edge 
 
 ---
 
-## GATE 1: WHO IS THE USER AND WHAT PROCESS ARE THEY MAPPING
+## GATE 1: WHO IS THE USER, WHAT PROCESS, AND HOW ARE WE BUILDING IT
 
-The first thing you're going to do is assess who the user is and what process they want to map. Use AskUserQuestion to ask **ONLY THESE QUESTIONS**:
+The first thing you're going to do is assess who the user is, what process they want to map, and how they want to build the map. Use AskUserQuestion to ask **ONLY THESE QUESTIONS**:
 
 1. Who is the person?
 2. What company and what role?
 3. What process are they trying to map?
+4. **How do you want to build this process map?**
+   - **A) Walk me through it** — I'll interview you step by step (you explain the process verbally)
+   - **B) Mine from a previous session** — I'll extract the process from one or more past Claude Code sessions where you already did the work
+   - **C) Both** — Mine a session first, then we'll refine it together in the interview
 
-**HARD GATE:** Do NOT proceed to Gate 2 until you have answers to all three questions. Do NOT infer or assume — ask.
+   RECOMMENDATION: Choose B if you've already done this process in a previous Claude Code session — mining the real session captures gotchas and tools that you'd forget in an interview.
+
+**HARD GATE:** Do NOT proceed until you have answers to all four questions. Do NOT infer or assume — ask.
 
 If the user is David (recognized from CLAUDE.md context or explicit statement), you already know who he is. Skip to question 3 — what process are you trying to map?
 
@@ -136,6 +145,7 @@ Print the following to the chat so the user sees it captured:
 **User:** [name]
 **Company / Role:** [company, role]
 **Process to map:** [process name / description]
+**Input mode:** [A: Walk-through / B: Session mining / C: Both]
 ```
 
 Confirm with the user: "Here's what I understand. Does this look right?"
@@ -144,11 +154,190 @@ Confirm with the user: "Here's what I understand. Does this look right?"
 - [ ] You know who the user is
 - [ ] You know their company and role
 - [ ] You know what process they want to map
+- [ ] You know the input mode (A, B, or C)
 - [ ] You've printed the Gate 1 Output and the user confirmed it
+
+### Gate 1 Routing
+- **If mode A:** Skip Gate 1.5, proceed directly to Gate 2.
+- **If mode B or C:** Proceed to Gate 1.5 (Session Mining).
+
+---
+
+## GATE 1.5: SESSION MINING (only if input mode B or C)
+
+This gate extracts a process from one or more previous Claude Code sessions. The core principle: **every single turn in the session must be accounted for.** Nothing gets silently skipped. The user sees a Turn Manifest that tracks completeness, and by the end, every row has a status.
+
+### Session Mining Script
+
+The session mining script lives at `.claude/skills/shaner-consulting/session-miner.py` (resolve to absolute path before running). It has 4 modes:
+
+```bash
+# List recent sessions
+python3 SESSION_MINER_PATH list [--search TERM] [--after YYYY-MM-DD] [--limit N]
+
+# Summarize specific sessions
+python3 SESSION_MINER_PATH summary SESSION_ID [SESSION_ID...]
+
+# Generate the turn manifest
+python3 SESSION_MINER_PATH manifest SESSION_ID [--output PATH]
+
+# Full extraction digest
+python3 SESSION_MINER_PATH extract SESSION_ID [SESSION_ID...] [--output PATH]
+```
+
+### Step 1: Locate Sessions
+
+Use AskUserQuestion to ask how to find the session(s):
+- "Do you have the session ID? Or should I search by keyword, date, or show you recent sessions?"
+
+Based on their answer, run the script in **list mode**:
+```bash
+python3 SESSION_MINER_PATH list --search "their keyword" --limit 15
+```
+
+Present the results and let the user select one or more sessions.
+
+### Step 2: Verify Sessions (HARD GATE)
+
+Run the script in **summary mode** on the selected session(s):
+```bash
+python3 SESSION_MINER_PATH summary SESSION_ID_1 SESSION_ID_2
+```
+
+Present the summary to the user: "Here's what I found in this session. Is this the right one?"
+
+**HARD GATE:** Do NOT proceed without explicit user confirmation that these are the correct sessions. If they say "that's not the right one," go back to Step 1.
+
+### Step 3: Build the Turn Manifest
+
+Run the script in **manifest mode**:
+```bash
+python3 SESSION_MINER_PATH manifest SESSION_ID --output /tmp/session-manifest-SESSION_ID.md
+```
+
+Read the output file and present it to the user:
+
+"Here's the Turn Manifest — every conversational turn from the session. By the time we're done mining, every single row will have a status. Here's what the statuses mean:
+
+- `STEP` — incorporated as a process step
+- `EDGE_CASE` — incorporated as an edge case / gotcha on a step
+- `GOTCHA` — logged as a gotcha / lesson learned (not tied to a specific step)
+- `CODE` — contains a reusable code pattern or tool call
+- `CONTEXT` — provides background context (not a step, but informs the process)
+- `META` — session meta-conversation (greetings, confirmations, skill invocations, etc.)
+- `DISCARDED` — reviewed and intentionally excluded (with reason)"
+
+### Step 4: Process Mining with Completeness Tracking
+
+This is the core extraction loop. Also run the **extract mode** to get the full digest:
+```bash
+python3 SESSION_MINER_PATH extract SESSION_ID --output /tmp/session-extract-SESSION_ID.md
+```
+
+Read the extract output. Now work through the manifest and digest together. For each turn or logical group of related turns:
+
+1. **Analyze:** What role does this turn play? Is it a process step, an edge case, a gotcha, code, context, or meta?
+2. **Classify:** Assign a status from the list above.
+3. **Extract:** Pull out the relevant content (step description, edge case detail, code snippet, etc.) and add it to the appropriate bucket.
+
+**Present findings in 5 buckets as they accumulate:**
+
+1. **Process Steps** — the sequence of steps extracted from the conversation
+2. **Edge Cases & Gotchas** — every mistake, frustration, retry, wrong approach, user correction
+3. **Code & Tool Patterns** — scripts, commands, tool calls that could be abstracted
+4. **Context Notes** — background that informs the process but isn't a step
+5. **Open Questions** — things that were unclear or unresolved
+
+**Show progress periodically.** Every 10-15 turns, show the user an updated manifest with status columns filled in so they can see which turns have been accounted for and which remain.
+
+**HARD GATE — 100% coverage required.** The manifest must reach 100% coverage before proceeding. Every row needs a status. Show the user the final manifest as proof:
+
+```
+## Turn Manifest — Final (100% coverage)
+
+**Total turns:** [N]
+**Breakdown:**
+- STEP: [N] turns → [N] process steps extracted
+- EDGE_CASE: [N] turns → [N] edge cases captured
+- GOTCHA: [N] turns → [N] gotchas logged
+- CODE: [N] turns → [N] code patterns extracted
+- CONTEXT: [N] turns
+- META: [N] turns (greetings, confirmations, etc.)
+- DISCARDED: [N] turns (with reasons)
+
+Every turn from the session has been accounted for.
+```
+
+### Step 5: Bucket Review (MANDATORY — every bucket)
+
+Present each bucket to the user one at a time. Use AskUserQuestion for each bucket:
+
+**Edge Cases & Gotchas:**
+"Here are all the gotchas I found — [N] total. For each one, should we:
+A) Incorporate it into the process as an edge case on a specific step
+B) Note it as a standalone warning/lesson learned
+C) Discard it (it was specific to that session, not the process)"
+
+Show each gotcha and get a decision. Do not batch-approve.
+
+**Code & Tool Patterns:**
+"Here are the tools and code patterns used — [N] total. Should any of these be:
+A) Abstracted into the process as a reusable component
+B) Referenced as a code appendix
+C) Discarded (one-time usage, not part of the process)"
+
+**Context Notes:**
+"Here's background context I extracted — [N] items. Any of this important enough to include in the process map?"
+
+**Nothing gets silently discarded** — every item in every bucket is shown and the user decides.
+
+### Step 6: Synthesis (multi-session only)
+
+If multiple sessions were mined:
+1. State the full combined process back using the chief of staff principle
+2. Resolve conflicts between sessions (if step 3 in session A differs from session B, surface it)
+3. Identify patterns that appear across sessions (these are likely the real process)
+4. Present the synthesized process for confirmation
+5. Show a combined manifest across sessions
+
+### Gate 1.5 Output
+
+Print the following to the chat:
+
+```
+## Process Mapping — Gate 1.5: Session Mining Complete
+
+**Sessions mined:** [list of session IDs + dates]
+**Total turns processed:** [N]
+**Coverage:** 100%
+
+### Draft Process Steps
+[numbered list of steps extracted]
+
+### Edge Cases Cataloged: [N]
+### Code Patterns Extracted: [N]
+### Gotchas Logged: [N]
+### Open Questions: [N]
+
+**Status:** This draft feeds into Gate 2 for bookend confirmation and Gate 3/4 for refinement.
+```
+
+**If input mode was B:** Gates 2-4 become a review/refinement pass on this draft rather than building from scratch.
+**If input mode was C:** Gates 2-4 run normally but with this draft as a starting point the user can reference.
+
+### Gate 1.5 Exit Criteria
+- [ ] Session(s) located and verified by user
+- [ ] Turn Manifest built and reached 100% coverage
+- [ ] All 5 buckets reviewed with user decisions on every item
+- [ ] Draft process steps extracted and presented
+- [ ] Multi-session synthesis complete (if applicable)
+- [ ] User confirmed the Gate 1.5 output
 
 ---
 
 ## GATE 2: THE BOOKENDS — TRIGGER AND END STATE
+
+**If a session-mined draft exists from Gate 1.5:** You likely already have a trigger and end state implicit in the draft. Pre-populate them and ask the user to confirm or refine rather than asking from scratch: "Based on the session mining, it looks like the trigger is [X] and the end state is [Y]. Does that match your understanding, or should we refine these?"
 
 Now you need to establish the two endpoints of the process before you explore the middle. Use AskUserQuestion for each:
 
@@ -184,6 +373,10 @@ Confirm with the user: "These are the two endpoints. Everything we map next happ
 ---
 
 ## GATE 3: STRUCTURED INTERVIEW — THE MIDDLE
+
+**If input mode was B (session mining only):** This gate becomes a **review pass** on the draft from Gate 1.5. Instead of interviewing from scratch, present the extracted steps one at a time and ask: "Here's what I extracted from the session. Does this step look right? What would you add, change, or remove?" Apply the same Edge Case Detective Rule and gate criteria — the only difference is you're refining an existing draft instead of building from nothing.
+
+**If input mode was C (both):** Run this gate normally, but reference the mined draft as a starting point. You can say: "From the session mining, I have step 3 as [X]. Does that match, or is the actual process different?"
 
 This is the core of the skill. You're going to walk through the process linearly from trigger to end state, one step at a time. The user is your primary source. Your job is to pull the process out of their head in a structured way.
 
@@ -254,6 +447,8 @@ Now you enter chief of staff mode. You're going to state the full process back t
 Before you state the flow, apply this test internally: **"If this user disappeared and I had to execute this process without their input, could I do it?"**
 
 If you don't have the level of detail to make you feel like you could do it, then you can't move forward. Identify what's missing and address it with the user BEFORE stating the flow.
+
+**If a session-mined draft exists:** Also ask: **"Did I capture everything from the mined session, or did I lose something in abstraction?"** Cross-reference the Turn Manifest. If any STEP-classified turns don't have a corresponding step in the process map, something was lost — surface it.
 
 **IMPORTANT:** At this stage you are not worried about data sources, APIs, external systems, or implementation details. You're still stating all of this as a text-based process to get alignment. Data sources and context come later, in the Shaner Consulting framework. The question is: "Do I understand the STEPS well enough to execute them?"
 
@@ -370,6 +565,22 @@ Generate a markdown document with this structure:
 
 ## Open Questions
 [Anything that surfaced during mapping that wasn't fully resolved — these become inputs for the Shaner Consulting framework's context investigation]
+
+## Source Sessions (if session-mined)
+[Only include this section if the process was mined from sessions]
+
+| Session ID | Date | Turns | Summary |
+|-----------|------|-------|---------|
+| [id] | [date] | [count] | [1-line summary] |
+
+### Extracted Code Patterns
+[Reusable scripts, commands, or tool patterns extracted from the session(s) that could feed into implementation]
+
+### Session Gotchas
+[Gotchas from the session that didn't make it into edge cases but are useful context — e.g., "the API rate-limited us at step 4, had to add a sleep"]
+
+### Turn Manifest Reference
+[Total turns processed, coverage percentage, breakdown by status type. The full manifest is available at [path] for reference.]
 
 ## Next Step
 This process map is ready to feed into the Shaner Consulting AI Framework at Step 3 (Process/Context Cycle), where context sources will be identified and system design will begin. Run `/shaner-consulting` to continue.

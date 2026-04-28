@@ -43,6 +43,18 @@ Standard "I'm done with this chat" command. Commits, pushes, notifies your team,
 - Decisions made that require implementation
 - External dependencies (waiting on someone — track it)
 
+**Required to-do format (MANDATORY — match the file's existing convention):**
+
+```
+- [ ] **{Owner}: {Action title in title case}** — {context: what, why, what's drafted/done, what's blocking, deadlines, dollar amounts, file paths if relevant}. *({Owner}, {YYYY-MM-DD} session{; optional cross-reference to file or thread})*
+```
+
+Rules:
+- Owner and action title bolded together as a single phrase (`**Person: Bind insurance policy**`), not split (`**Person**: bind...`)
+- Context is plain prose after an em-dash; include enough so a reader from a different session can act without re-reading the conversation
+- Citation in italics at the end. For session-derived to-dos, use `(Person, YYYY-MM-DD session)`. If the to-do came from a transcript, use the existing `(Person, line N from MM/DD)` pattern.
+- Updates to existing to-dos: append `*(YYYY-MM-DD update: ...)*` rather than rewriting the original
+
 Propose additions/changes and get approval before editing.
 
 #### Other Internal Docs

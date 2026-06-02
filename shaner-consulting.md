@@ -211,6 +211,12 @@ If the artifact is a repo with code, you MUST spawn sub-agents to get a THOROUGH
 
 **HARD GATE:** This step ends with the user confirming you've nailed the current state. Do NOT proceed until you get that confirmation.
 
+### Optional Bridge: `/process-context-canvas`
+
+If the engagement is with a client (rather than internal work), pause here and consider running `/process-context-canvas` BEFORE entering Step 3. It's a pure transformer skill that turns a process map into 3 visual canvas artifacts (accountability chart, process flowchart, 5-tier data sources canvas) — the artifacts get refined by David first (Pass 1), then taken to the client + team to align on the picture (Pass 2). When the client signs off, those artifacts feed directly into Step 3 below as the agreed-upon process/context picture.
+
+Skip if: you're David working solo on internal work, the process is already crystal clear from Step 2, or there's no client team to align with. Use if: a client engagement where you need shared visual context before system design begins.
+
 ---
 
 ## STEP 3: PROCESS/CONTEXT CYCLE
@@ -247,7 +253,7 @@ You exit this stage when you can outline a table of the process steps:
 
 **Temporal processes vs. core processes:** Many times people have temporal processes like weekly status reports or weekly digests. Those are different from the underlying core processes that drive the business — like accounts receivable, accounts payable, financial forecasting, etc. It's not to say that people shouldn't have weekly reports, it's just to say that the weekly reports are essentially an amalgamation of several different underlying processes, and THAT should be the system design.
 
-**Vendor-managed processes:** Sometimes a process is managed through a vendor (e.g., "my taxes are managed by Dave Kirk"). In that case, the process for tax becomes whatever process is necessary to successfully manage that vendor relationship.
+**Vendor-managed processes:** Sometimes a process is managed through a vendor (e.g., "my taxes are managed by an outside accountant"). In that case, the process for tax becomes whatever process is necessary to successfully manage that vendor relationship.
 
 ### CRITICAL FORK IN THE ROAD
 
@@ -277,7 +283,7 @@ Your highly opinionated design principle is that there are things that have to l
 
 ### The Four Buckets
 
-**Processes = the steps (the recipe).** What the system does. Each process is one file, named so a human can read it. File names should map to process names. If you have a process called "Pay Splits," the file is `03_pay_splits.py`. If someone asks "where does Taylor get paid?", you can answer without reading code.
+**Processes = the steps (the recipe).** What the system does. Each process is one file, named so a human can read it. File names should map to process names. If you have a process called "Pay Splits," the file is `03_pay_splits.py`. If someone asks "where does a teammate get paid?", you can answer without reading code.
 
 The code/scripts should actually MAP TO THE PROCESSES. If there's a step in the process that says "fetch emails" and that's step zero, then the Python script is `00_fetch_emails.py`. Keep the code and the process in sync — it makes it so much easier to communicate and debug around.
 

@@ -102,10 +102,11 @@ SCOPE: [files/plan being reviewed]
 
 ## Phase 2: Parallel Review
 
-Launch **three agents in a single message** (parallel execution). Pass each agent:
+Launch **four agents in a single message** (parallel execution). Pass each agent:
 - The diff (post-change) or plan text (pre-change)
 - The current README.md content
 - The current folder structure (`find . -type f | head -60`)
+- The current `improvement/assertions.md` content (if present)
 
 ### Agent 1: Bucket Integrity
 
@@ -130,13 +131,18 @@ Report as a table:
 
 ### Agent 2: Contract Sync
 
-Check whether the README and CLAUDE.md are still accurate after the change.
+Check whether the README, CLAUDE.md, AND data files the process writes to are still accurate after the change.
 
 1. **Process table:** Does every process in the README still have a corresponding file? Does every process file appear in the table? If a process was added/modified/removed, is the table updated?
 2. **File/folder map:** Does the README's file map match the actual directory structure? Any new files missing from the map?
 3. **Run commands:** Do the commands in "How to run it" still work with the changes?
 4. **Dependencies:** If new APIs, config, or external systems were added, are they in the README's dependencies section?
 5. **CLAUDE.md:** Does it still accurately describe the project state?
+6. **Data file shape sync** (CRITICAL — easy to miss): If the edit changes what the process WRITES to a data file (a log, a registry, a state file, etc.), you MUST read the target data file on disk and verify:
+   - The current schema (column names, field order, nested structure)
+   - Any existing rows/records and their shape
+   - Whether the proposed write-format matches the existing schema
+   If they don't match, flag as **CRITICAL**. Do NOT trust the scaffold block in the SKILL/process file — that block describes what the file *would* look like if fresh, but the real file on disk may have evolved past it. Classic failure mode: a process edit defines a new table name/schema, and on execution creates a parallel table instead of appending to the existing one, silently orphaning prior data. Always: (a) identify which data files this edit writes to, (b) read them, (c) diff the current schema against the proposed write-format, (d) flag mismatches.
 
 Report as a checklist:
 - [ ] Process table matches process files
@@ -144,6 +150,7 @@ Report as a checklist:
 - [ ] Run commands still valid
 - [ ] Dependencies section current
 - [ ] CLAUDE.md accurate
+- [ ] Target data files read; write-format matches existing schema (or mismatches flagged CRITICAL)
 
 Flag each discrepancy with the specific line/section that needs updating.
 
@@ -161,6 +168,70 @@ Report violations with severity:
 - **CRITICAL** — Breaks the paradigm (wrong bucket, broken handoff, gate bypassed)
 - **WARNING** — Weakens the paradigm (naming drift, missing README update, scope leak)
 - **NOTE** — Minor drift worth knowing about
+
+### Agent 4: Improvement Bucket Integrity
+
+The `improvement/` bucket is how the system learns. Its integrity is paradigm-critical. Read the schema in the `/shaner-consulting` skill's sibling file `improvement-bucket.md` if unfamiliar.
+
+Run these checks:
+
+#### 4.1 Structural
+
+- `improvement/assertions.md` exists
+- `improvement/grader.md` exists
+- `improvement/adversarial/fixtures/` directory exists
+- `improvement/runs.jsonl` exists (may be empty)
+
+Missing any = **CRITICAL**.
+
+#### 4.2 Assertion Voice (Jargon Lint)
+
+For every sentence in `improvement/assertions.md`, apply the jargon ban list from `improvement-bucket.md`. Flag any sentence that contains:
+
+1. Function or API verbs: `emit`, `fire`, `trigger`, `dispatch`, `invoke`, `call`, `return`, `throw`, `raise`
+2. State-transition computing terms: `transition`, `healthy → unhealthy`, `flip`, `toggle`, `latch`, `debounce`, `dedupe`, `retry-with-backoff`
+3. Raw API / HTTP language: `ok:true`, `200`, `429`, `5xx`, `exit 0`, `null`, `undefined`, backticked field names
+4. Latin abbreviations: `i.e.`, `e.g.`, `etc.`, `vs.`, `et al.`
+5. Arrow-syntax: `X → Y`, `if X then Y` as shorthand
+6. Code-shaped glue: `==`, `!=`, `&&`, `||`, parentheses around conditions
+7. Implementation details: specific timeouts, specific retry counts, algorithm names
+
+Each violation = **CRITICAL** with the quoted sentence and a plain-language rewrite.
+
+Also flag: sentences describing **how** instead of **what**. "The monitor retries with exponential backoff, 2/4/8/16 seconds" is HOW — rewrite to "The monitor tries again if it fails the first time."
+
+#### 4.3 Assertion ↔ Fixture Coverage
+
+Every assertion sentence must have at least one fixture in `improvement/adversarial/fixtures/` that references it via `assertion_ref`. Cross-check.
+
+- Assertion with no fixture = **WARNING** (fixture missing)
+- Fixture with no matching assertion = **CRITICAL** (orphaned test — the sentence it protects was deleted or never existed)
+
+#### 4.4 Diff ↔ Assertion Coverage
+
+If the diff touches any process code, check: does an assertion sentence cover the behavior being modified?
+
+- Process code changed, no assertion covers it = **WARNING** (untested behavior — write the assertion)
+- Process code changed, assertion exists, assertion sentence is now stale relative to the new behavior = **CRITICAL** (the contract lies about what the code does; update the assertion or revert the code)
+
+#### 4.5 Runs Trend Check
+
+Read the last N (default: 10) entries in `improvement/runs.jsonl`. For each assertion, compute the pass rate over those runs.
+
+- Assertion pass rate below 80% over the last 10 runs = **WARNING** (the system is drifting — even if this diff doesn't touch that process)
+- Assertion pass rate below 50% over the last 10 runs = **CRITICAL** (the system is actively broken on that behavior)
+
+If `runs.jsonl` has fewer than 3 entries, skip this check (not enough history).
+
+Report as:
+
+| Check | Status | Severity | Finding |
+|-------|--------|----------|---------|
+| Structural | OK / Missing | — / CRITICAL | [details] |
+| Jargon lint | N violations | — / CRITICAL | [quoted sentences + rewrites] |
+| Coverage | OK / Gaps | — / WARNING / CRITICAL | [details] |
+| Diff ↔ assertion | OK / Gaps | — / WARNING / CRITICAL | [details] |
+| Trend | OK / Drifting | — / WARNING / CRITICAL | [per-assertion pass rates] |
 
 ---
 

@@ -129,6 +129,14 @@ RECOMMENDATION: [what the user should do next]
 
 This skill operates on the project directory identified in Phase 0. If it discovers issues outside the project (in a shared skill, a parent repo, an external dependency), log them in the validation report — **do not fix them.** Out-of-scope issues are concerns, not tasks.
 
+### CRITICAL: Memory Is NOT a Fix Destination
+
+Every bug, design gap, or behavioral miss found during first-run validation MUST be fixed in a reviewable, durable location: code, a skill file (`SKILL.md`), a process file, a config, a prompt template, or the README. **Never use auto-memory (`~/.claude/projects/.../memory/`) as a substitute for fixing the underlying system.**
+
+Memory is for cross-session user preferences ("David prefers casual tone with a client"). It is NOT for system bugs ("the inbox skill didn't fetch Drive links inline" or "email content got hidden in collapsed bash output"). Memory entries aren't reviewed when skills are improved, don't propagate to other agents or fresh sessions, and can silently vanish — so a bug "fixed" in memory recurs.
+
+Global CLAUDE.md guidance that says "save corrections to memory" DOES NOT apply during first-run. Inside this skill, the rule is: **if the system did the wrong thing, fix the system's files.** See Phase 3.2 for the full destination taxonomy and test.
+
 ---
 
 # PHASES
@@ -146,6 +154,14 @@ Read the project's README end-to-end. This is the contract. Extract:
 5. **How to run it** — What commands execute the system?
 
 Then read each process file to understand what it actually does (not just what the README says it does).
+
+### Also Read `improvement/assertions.md` (if present)
+
+If `improvement/assertions.md` exists, **it is the contract at the behavior level** — more specific than the README. Read it end-to-end. Each sentence is a behavior the system must maintain. Every gate check in Phase 2 will cite the specific sentence being tested.
+
+If `improvement/assertions.md` does NOT exist, that is expected for pre-update systems. Phase 1 will produce it. Note this in the status line: `ASSERTIONS: missing — will populate in Phase 1`.
+
+The full schema and voice rules for `improvement/assertions.md` are defined in the sibling file `improvement-bucket.md` at the root of the `/shaner-consulting` skill directory. Read it if you're unfamiliar.
 
 ### The Purpose Lock
 
@@ -168,6 +184,25 @@ The user's confirmation becomes the **purpose lock**. Every gate check in Phase 
 
 ## PHASE 1: MAP HANDOFFS & WRITE TEST PLAN
 
+### 1.0 Populate or Refresh `improvement/assertions.md` (if needed)
+
+**If `improvement/assertions.md` was missing in Phase 0**, write it now before anything else. For each process, produce 2–5 plain-language sentences describing what the process must do to be correct.
+
+Voice rules from `improvement-bucket.md` — summarized:
+- Write like an SOP for a new employee. No function names, API verbs, state transitions, Latin abbreviations, or arrow-syntax.
+- One sentence = one behavior. If you wrote "and" between two independent behaviors, split it.
+- Describe **what** the system does, not **how**.
+
+Example good sentence: *"Once the system is working again, the incident is closed and the user gets a DM at the next check letting them know."*
+
+Example bad sentence (same meaning, jargon-loaded, REJECT): *"On healthy transition, incident closes and recovery DM fires within one self-test cycle."*
+
+Save the file. Use **AskUserQuestion** to confirm with the user: "Here's the behavior contract I drafted for this system. Does each sentence describe something you'd actually want the system to do? Anything missing, wrong, or jargon-y?"
+
+**If `improvement/assertions.md` was present in Phase 0**, re-read it and flag anything that looks stale, jargon-loaded, or inconsistent with the README. Propose edits; don't silently modify.
+
+### 1.1 Per-Step Test Plan
+
 For each process step (in execution order), define:
 
 ### 1. What It Does
@@ -175,6 +210,9 @@ Plain English description from the README and the code. Not what the function is
 
 ### 2. Expected Output
 What should come out of this step? Be concrete: "A list of 3-5 invoices with amount, due date, and status" — not "invoice data."
+
+### 2.5 Which Assertions Apply
+List the specific sentences from `improvement/assertions.md` that this step is responsible for satisfying. Every assertion must map to at least one step; every step that has assertions must cite them.
 
 ### 3. Handoff Intelligence
 **This is the most important concept in this skill.**
@@ -298,14 +336,14 @@ GAPS:
 1. **Sample records must be real.** Use an actual record from the run, not a template. Pick a representative one, not the cleanest one — if most records have gaps, show a record with gaps.
 2. **If a step iterates over records** (contacts, prospects, invoices), show the count AND a sample of both a complete record and an incomplete record (if any exist). The contrast makes gaps obvious.
 3. **SKIPPED is mandatory.** If the step consulted 5 sources and 1 was unavailable, that's a SKIPPED entry even if the step "succeeded." Skipped sources are invisible blind spots.
-4. **GAPS is mandatory.** Count nulls per field. "phone: 10 of 22 records null → iMessage not searchable for these contacts" is the kind of gap that catches the Taylor Cotner problem.
+4. **GAPS is mandatory.** Count nulls per field. "phone: 10 of 22 records null → iMessage not searchable for these contacts" is the kind of gap that catches the missing-surname problem.
 5. **Save to the trace file** (see Phase 4). The snapshot is appended to the trace file after each step so the full trace is available for review after the run.
 
 **Present the snapshot to the user in chat** using AskUserQuestion:
 
 "Here's the data shape for Step [N]. [Highlight any SKIPPED or GAPS entries.] Does this look right? Anything surprising?"
 
-**HARD GATE:** The user must confirm the data shape before proceeding to the gate check. If they spot a gap ("why is phone null for Taylor?"), that's a FAIL — enter the Diagnose & Fix cycle.
+**HARD GATE:** The user must confirm the data shape before proceeding to the gate check. If they spot a gap ("why is phone null for this contact?"), that's a FAIL — enter the Diagnose & Fix cycle.
 
 ### 2.4 Show Output
 
@@ -313,16 +351,17 @@ Show the user the **actual output** — not a summary, not your interpretation. 
 
 ### 2.5 Gate Check
 
-Four questions, all must pass:
+Five questions, all must pass:
 
 1. **Purpose check:** Does this output accomplish what the README says this step should do?
 2. **Data shape check:** Are there unexpected nulls, zero counts, skipped sources, or missing fields that would silently degrade downstream steps? Cross-reference the GAPS and SKIPPED entries from the data shape snapshot — if any gap would cause a downstream step to produce incomplete results without erroring, this check FAILS.
-3. **Handoff intelligence check:** Is the understanding present that the next step needs? Not just the data — the *why*.
-4. **Next-step readiness check:** If you handed this output to Step N+1 right now, would Step N+1 have everything it needs to succeed?
+3. **Assertion check:** For every assertion sentence cited in Phase 1 step 2.5 (which sentences apply to this step), does the actual output satisfy the sentence? Quote the specific sentence. If the sentence describes something the log claims but reality contradicts (or vice versa), this check FAILS — that's the silent failure we're here to catch.
+4. **Handoff intelligence check:** Is the understanding present that the next step needs? Not just the data — the *why*.
+5. **Next-step readiness check:** If you handed this output to Step N+1 right now, would Step N+1 have everything it needs to succeed?
 
 ### 2.6 Outcome
 
-**PASS:** Print a status receipt and move to the next step.
+**PASS:** Print a status receipt and continue to 2.7.
 
 ```
 ┌─────────────────────────────────────┐
@@ -330,12 +369,37 @@ Four questions, all must pass:
 │ STATUS: PASS                        │
 │ EVIDENCE: [what the output showed]  │
 │ DATA SHAPE: [confirmed by user]     │
+│ ASSERTIONS: [which ones this step   │
+│   satisfied, by quoted sentence]    │
 │ HANDOFF: [intelligence confirmed]   │
 │ NEXT: Step [N+1] — [title]          │
 └─────────────────────────────────────┘
 ```
 
 **FAIL:** Enter the Diagnose & Fix cycle (Phase 3) for this step. Do NOT move to the next step.
+
+### 2.7 Seed Adversarial Fixtures (PASS only)
+
+Behavior is freshest in mind right now. Before moving to Step N+1, seed adversarial fixtures for the assertions this step satisfied.
+
+For each assertion sentence cited above, ask: **"How could this sentence be true in the log but false in reality?"** That's a fixture.
+
+Generate 2–3 fixtures per assertion. Save each to `improvement/adversarial/fixtures/` using the naming convention `[process_num]_[short_name].json` (or `.yaml`). Format per `improvement-bucket.md`:
+
+```json
+{
+  "fixture_name": "03_slack_returns_ok_false",
+  "assertion_ref": "Process 03: 'An alert only counts as sent once Slack confirms...'",
+  "input": { ... minimal input to drive the process ... },
+  "mock_responses": { ... if the process calls externals ... },
+  "expected_behavior": "Plain-language sentence.",
+  "expected_behavior_negation": "Plain-language sentence describing the silent failure."
+}
+```
+
+**Do NOT execute the fixtures now.** The goal of first-run is to validate the happy path with real data. Fixture execution belongs to a later QA cycle or automated runner. Your job here is just to capture them while the step is fresh.
+
+**HARD GATE:** Every assertion cited in this step's gate check MUST have at least one fixture written before you move to Step N+1.
 
 ### Phase 2 Exit Criteria
 - [ ] Every step has been executed with real data
@@ -344,6 +408,57 @@ Four questions, all must pass:
 - [ ] Status receipts printed for every step
 
 **HARD GATE:** Every step must pass before this phase is complete. If a step cannot be fixed after 3 attempts, escalate to the user.
+
+---
+
+## PHASE 2.5: DETERMINISM AUDIT
+
+After all Phase 2 steps pass, step back and audit *how* the system ran, not just whether it produced the right output.
+
+### The Principle
+
+**Deterministic work must live on disk.** If the model re-derived the same logic at runtime — wrote it fresh, ran it, threw it away — the skill has a hole. The output was right this time, but the cost was burned context, forgotten flags, and inconsistency between runs. Next week the model will rewrite the same script slightly differently, hit a different edge case, and maybe get it wrong.
+
+The test: does the answer depend on the *bounds* of the input (dates, IDs, counts) or on its *content* (free text, novel shapes, judgment calls)?
+- Bounds-only → belongs in a committed script
+- Content-sensitive → belongs in the LLM
+
+### How to Audit
+
+Open the session JSONL for the just-completed run (under `~/.claude/projects/[encoded-path]/*.jsonl`) and read the tool-call stream with the principle in mind. Look for places where the LLM did deterministic work at runtime that could have lived on disk.
+
+Some manifestations to watch for — these are illustrative, not exhaustive:
+
+- Scripts written to `/tmp/` (or any ephemeral path) during execution. Especially if versioned (`foo.py`, `foo_v2.py`, `foo_v3.py`) — that's the LLM iterating a solution from scratch instead of improving a committed one.
+- The same MCP tool called twice in one step with different arguments — usually means "forgot a flag the first time, retried." The right flag should be hardcoded.
+- Multiple `ToolSearch` calls spread across the run that could have been batched at Step 0 — the skill knows which schemas it needs upfront.
+- Runtime-written scripts that embed large string literals copied from prior tool outputs (hardcoded event data, inlined JSON, pasted record lists) — glue that doesn't compose.
+- Logic described in prose in a `.md` context file that the LLM re-implements in Python on every run — the prose is a spec, but the spec is never executed, so the implementation drifts.
+
+Beyond these, use judgment. The principle is the test, not the list. If something in the trace feels like it was *re-derived* rather than *recalled*, flag it. If a future run with the same window would require the LLM to figure out the same thing again, flag it.
+
+### For Each Defect Found
+
+Write a one-block finding:
+
+```
+DEFECT: [short name]
+EVIDENCE: [JSONL line numbers or tool call IDs — enough for a reader to re-verify]
+DETERMINISM ARGUMENT: [why this is bounds-only, not content-sensitive]
+FIX: [the specific extraction — name the script, where it goes, what it takes as args, what it returns]
+```
+
+### Why This Matters for Validation
+
+A run can pass every gate in Phase 2 and still leave the skill with tech debt that guarantees the same bugs recur. Phase 2.5 catches that. If the run passes but has determinism defects, the validation verdict is `VALIDATED_WITH_CONCERNS` — the system works, but has a tech-debt list that must be addressed before it can be claimed as clean.
+
+### Phase 2.5 Exit Criteria
+- [ ] Session JSONL read with the deterministic-work-on-disk principle in mind
+- [ ] Every defect has a finding block with evidence, argument, and specific fix
+- [ ] Findings saved to `data/determinism-audit-YYYY-MM-DD.md` (or appended to the trace file)
+- [ ] If zero defects, the audit file says so explicitly (don't skip writing it)
+
+**HARD GATE:** Do NOT proceed to Phase 4 until the audit is written. If defects were found, note them in the Phase 4 report and let the user decide whether to extract them now or track them as follow-ups.
 
 ---
 
@@ -364,7 +479,45 @@ State the classification explicitly: "This is a PROCESS problem because..." or "
 
 ### 3.2 Fix
 
-Fix the root cause. Edit the code, update the config, adjust the process file — whatever it takes. Be specific about what you changed.
+Fix the root cause. Be specific about what you changed — name the file and line range.
+
+#### Valid fix destinations
+- **Code files** (`.py`, `.ts`, `.js`, etc.) — logic bugs, wrong defaults, broken loops, bad error handling
+- **Skill files** (`SKILL.md`, `*.md` skill definitions) — missing behaviors, wrong workflow, unhandled edge cases, rendering/UX rules in an agent-driven process
+- **Process files** (`processes/*.md`, numbered process docs) — wrong steps, missing steps, wrong order
+- **Config/env files** (`.env`, `config.yaml`, registry files) — missing credentials, wrong endpoints, wrong routing
+- **README / contract docs** — when the system's behavior contract itself is wrong
+- **Prompt templates** — when an LLM call has the wrong instructions or missing context
+
+#### INVALID fix destination: auto-memory
+
+**Do not write the bug into `~/.claude/projects/.../memory/` as a `feedback` or `project` entry instead of fixing the file.** Memory is user-preference glue across sessions. It is not a bug tracker, not a skill patch, and not reviewed when skills are improved — so anything "saved" there will recur.
+
+#### The memory-vs-file test
+
+Ask: **"Did the SYSTEM do the wrong thing, or did the USER express a preference?"**
+- SYSTEM did the wrong thing → fix the system's files. Every time. No exceptions inside first-run.
+- USER expressed a cross-session preference ("call me Hey man with a client") → memory is appropriate.
+
+If you can restate the issue as "next time the system runs, it should do X instead of Y", the fix belongs in the files that drive that run.
+
+#### Concrete examples of the trap
+
+These are real misfires — each one should have been a file edit, not a memory write:
+
+| Observation during first-run | Wrong (memory) | Right (file) |
+|------------------------------|---------------|--------------|
+| "/inbox didn't dereference Drive links in emails" | Save feedback: "/inbox must fetch linked Drive files inline" | Edit the inbox-triage `SKILL.md` to add a fetch-and-render step for Drive URLs |
+| "Email content got hidden in collapsed bash output" | Save feedback: "render email content in response as plain text" | Edit the skill's output rules to require inline markdown rendering |
+| "draft-and-archive picked wrong To-address" | — | Edit `gmail_ops.py` counterparty selection logic (done correctly) |
+| "Link-shared Sheets not visible via Drive API" | — | Add Sheets-API fallback in the fetcher (done correctly) |
+
+If you catch yourself drafting a memory entry mid-fix, STOP. Re-classify as a file fix and locate the right destination from the table above.
+
+#### Self-check before leaving 3.2
+- [ ] I edited at least one code/skill/process/config/README file.
+- [ ] I did NOT write a `feedback_*.md` or `project_*.md` in the memory directory for this fix.
+- [ ] If I genuinely believe this is a user-preference item and memory is warranted, I will flag it to the user with AskUserQuestion before writing it, and still fix any system behavior in the files.
 
 ### 3.3 Re-Run
 
@@ -480,10 +633,30 @@ The report is an **observable trace** — not just a scorecard. Anyone reading i
 
 ## Fixes Applied
 
-| # | Step | Fix Description | Type | Root Cause |
-|---|------|----------------|------|------------|
-| 1 | 03 | Updated prompt to include invoice reason | PROCESS | Step wasn't extracting the "why" |
-| 2 | 04 | Added SLACK_TOKEN to .env | CONTEXT | Missing credential |
+Every row must name the file path that was edited. If the "File(s) edited" column is empty or names a path under `memory/`, the fix is incomplete — go back and fix the system's files.
+
+| # | Step | Fix Description | Type | Root Cause | File(s) edited |
+|---|------|----------------|------|------------|----------------|
+| 1 | 03 | Updated prompt to include invoice reason | PROCESS | Step wasn't extracting the "why" | `processes/03_classify.md`, `prompts/classify.txt` |
+| 2 | 04 | Added SLACK_TOKEN to .env | CONTEXT | Missing credential | `.env.example`, `README.md` |
+
+## Determinism Defects
+
+From the Phase 2.5 audit. Every defect is a promise that the same bug will recur next run unless extracted.
+
+| # | Defect | Evidence | Fix |
+|---|--------|----------|-----|
+| 1 | [short name] | [JSONL lines / tool-call IDs] | [script path + args + return shape] |
+
+If zero defects, write `None — the run used only committed on-disk logic.`
+
+## Memory Audit
+
+Confirm no bug or design gap from this run was "fixed" by writing to auto-memory instead of the system's files:
+
+- [ ] I did NOT create any new `feedback_*.md` or `project_*.md` in `~/.claude/projects/.../memory/` for issues discovered during this run.
+- [ ] If any memory write happened, it is user-preference glue (tone, naming, cross-session habit) — NOT a system bug — and the underlying system behavior is separately fixed in a file above.
+- [ ] Every issue surfaced to the user in the completion message can be traced to a file path in the "Fixes Applied" table.
 
 ## Data Flow Summary
 
@@ -509,6 +682,25 @@ A condensed view of what flowed through the full pipeline:
 [Issues found in shared skills, parent repos, or external systems — logged, not fixed]
 ```
 
+### Phase 4.5: Append to runs.jsonl
+
+First-run is itself a real run. Append a scored entry to `improvement/runs.jsonl` using the schema in `improvement-bucket.md`:
+
+```json
+{
+  "run_id": "[ISO 8601 timestamp]",
+  "ts": "[ISO 8601 timestamp]",
+  "input_ref": "first-run validation",
+  "scores": [
+    {"assertion": "[quoted sentence]", "score": "pass|partial|fail|not_applicable|needs_human", "rationale": "[one sentence]"}
+  ],
+  "overall": "pass|partial|fail|needs_human",
+  "follow_up": "[any fixtures opened, any assertions edited, any README changes needed]"
+}
+```
+
+Score every assertion in `improvement/assertions.md`, even ones not exercised by this run (mark those `not_applicable` with a one-sentence rationale). This establishes the baseline — the first row in the grade history.
+
 ### Phase 4 Exit Criteria
 - [ ] Validation report written and saved
 - [ ] Every step has a data shape snapshot (input, output, skipped, gaps)
@@ -516,7 +708,10 @@ A condensed view of what flowed through the full pipeline:
 - [ ] Every fix is classified as PROCESS or CONTEXT
 - [ ] Every handoff boundary is verified
 - [ ] Data flow summary table is complete
+- [ ] Determinism defects from Phase 2.5 are listed in the report (or the explicit "None" note)
 - [ ] Concerns and out-of-scope issues documented
+- [ ] `improvement/runs.jsonl` has a baseline entry with scores for every assertion
+- [ ] `improvement/adversarial/fixtures/` has at least one fixture per assertion (seeded in Phase 2.7)
 
 ---
 

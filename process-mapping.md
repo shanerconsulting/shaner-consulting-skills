@@ -583,7 +583,9 @@ Generate a markdown document with this structure:
 [Total turns processed, coverage percentage, breakdown by status type. The full manifest is available at [path] for reference.]
 
 ## Next Step
-This process map is ready to feed into the Shaner Consulting AI Framework at Step 3 (Process/Context Cycle), where context sources will be identified and system design will begin. Run `/shaner-consulting` to continue.
+This process map is ready to feed into the Shaner Consulting AI Framework. Two paths from here:
+1. **`/process-context-canvas`** — build the visual context map (3 canvases: accountability chart, process flowchart, data sources tiered canvas) BEFORE system design. Recommended for client engagements where alignment with the client team is needed before code.
+2. **`/shaner-consulting`** — go straight to Step 3 (Process/Context Cycle) and system design, when canvas alignment isn't needed.
 ```
 
 ### Where to Save

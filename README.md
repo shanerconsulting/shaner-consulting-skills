@@ -23,9 +23,15 @@ I'm sharing them because a few people asked to try them. They're evolving as I g
 
 Both categories use the same patterns: phased execution, hard gates, AskUserQuestion with re-ground/simplify/recommend/options, and session logging.
 
+**Visualization** — see a pipeline instead of reading it:
+
+| File | What it does |
+|------|-------------|
+| `pipeline-canvas/` | Turns any multi-stage data-transformation pipeline into an interactive HTML canvas. You describe the pipeline in a `canvas.yaml` (stages, schemas, prompts, code, external sources, swim lanes, and per-entity traces — the "n8n run" view); a deterministic renderer builds a self-contained page. Re-running the renderer is the sync mechanism, so the canvas can't silently drift from the pipeline it depicts. Includes the renderer, template, contract doc, and a demo fixture. |
+
 ## How to use them
 
-These are [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill files. Drop them in `.claude/skills/` in any project and invoke them with `/shaner-consulting`, `/process-mapping`, `/first-run`, `/bootup`, or `/deploy`.
+These are [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill files. Drop them in `.claude/skills/` in any project and invoke them with `/shaner-consulting`, `/process-mapping`, `/first-run`, `/bootup`, `/deploy`, or `/pipeline-canvas`.
 
 The consulting skills (`shaner-consulting`, `process-mapping`, `first-run`) work best in sequence: map the process, build the system, validate it. But each one stands alone.
 

@@ -1,0 +1,60 @@
+pipeline: demo-pipeline
+title: Demo Summarization Pipeline
+source_root: ..
+sources:
+  - id: book
+    title: Four Steps PDF
+    description: The scanned book, 400 pages, OCR'd to markdown.
+    medium: FILE
+  - id: places
+    title: Google Places
+    description: Live open/closed spot-checks before publishing.
+    medium: SCREEN
+stages:
+  - id: corpus
+    title: Corpus
+    description: The raw material the pipeline consumes.
+    inputs: [book]
+    attachments:
+      - type: asset
+        file: assets/flow.svg
+        label: flow diagram
+      - type: note
+        label: HOUSE RULE
+        text: Intake order beats recency when assembling the corpus.
+  - id: summarize
+    title: Summarize
+    description: One summary per chapter, schema-validated.
+    attachments:
+      - type: schema
+        file: schemas/summary.json
+        example: runs/summary-filled.json
+      - type: prompt
+        file: prompts/summarize.md
+        medium: CHAT
+        variables:
+          corpus: {text: "steve-blank-four-steps"}
+      - type: code
+        file: tools/summarize_runner.py
+        display: pointer
+        example: runs/captured-prompt.md
+        medium: CODE
+  - id: publish
+    title: Publish
+    description: Validated summaries land in the review doc.
+    inputs: [places]
+    attachments:
+      - type: run_example
+        file: runs/2026-08-11_demo-run.md
+        medium: FILE
+lanes:
+  - id: hotfix
+    label: HOTFIX
+    stages: [corpus, publish]
+traces:
+  - id: ch3
+    label: "TRACE: CH3"
+    steps:
+      - {source: book, file: assets/flow.svg, label: raw scan excerpt}
+      - {stage: corpus, file: runs/2026-08-11_demo-run.md, label: chapter 3 as ingested}
+      - {stage: summarize, file: runs/summary-filled.json, label: summary emitted}

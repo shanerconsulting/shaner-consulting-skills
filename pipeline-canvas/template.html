@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pipeline Canvas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Source+Code+Pro:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F7F5F2;
+  --card-bg: #FFFFFF;
+  --card-border: #E8E5E0;
+  --text-primary: #2D2A26;
+  --text-secondary: #4A4642;
+  --text-muted: #8A857D;
+  --text-faint: #B5B0A8;
+  --text-mid: #6B655D;
+  --accent: #5B7B6A;
+  --accent-bg: #E8F1EC;
+  --divider-light: #E8E5E0;
+  --semantic-validated: #2F6F4F;
+  --semantic-validated-bg: #E8F1EC;
+  --semantic-draft: #A09A92;
+  --semantic-draft-bg: #F2F0EC;
+  --semantic-warning: #B8860B;
+  --semantic-warning-bg: #FBF4E6;
+  --semantic-info: #5A7491;
+  --semantic-info-bg: #ECF0F4;
+  --external-border: #C4A87A;
+  --external-bg: #FDFAF5;
+  --prose-font: ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { overflow: hidden; height: 100vh; background: var(--bg);
+  font-family: 'JetBrains Mono', monospace; color: var(--text-primary);
+  -webkit-font-smoothing: antialiased; }
+#viewport { position: fixed; inset: 0; overflow: hidden; cursor: grab; background: var(--bg); }
+#viewport.grabbing { cursor: grabbing; }
+#canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+svg.connectors { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 0;
+  overflow: visible; }
+
+/* ---- external source band (fan-in nodes above the pipeline) ---- */
+#sources { position: relative; z-index: 1; }
+.source-card { position: absolute; bottom: 60px; width: 300px;
+  background: var(--external-bg); border: 1px dashed var(--external-border);
+  border-radius: 2px; padding: 14px 16px; transition: opacity 0.25s; }
+.source-kicker { font-family: 'Source Code Pro', monospace; font-size: 10px;
+  font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--external-border); display: flex; gap: 6px; align-items: center;
+  margin-bottom: 8px; }
+.source-title { font-size: 17px; font-weight: 600; line-height: 1.2; }
+.source-desc { font-family: var(--prose-font); font-size: 13px;
+  color: var(--text-mid); line-height: 1.5; margin-top: 6px; }
+body.lane-active .source-card.dimmed { opacity: 0.18; }
+
+/* ---- columns (canvas-space: sized for fit zoom, ~1.7-2x reading size) ---- */
+#columns { display: flex; gap: 100px; padding: 60px; position: relative; z-index: 1;
+  align-items: flex-start; }
+.column { width: 480px; flex-shrink: 0; position: relative; /* headAnchor() relies on
+  .col-head offsets resolving against the column, not #columns */ }
+.col-head { background: var(--card-bg); border: 1px solid var(--card-border);
+  border-radius: 2px; padding: 18px 20px; margin-bottom: 24px; }
+.col-kicker { font-family: 'Source Code Pro', monospace; font-size: 12px; font-weight: 600;
+  letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase;
+  margin-bottom: 8px; }
+.col-title { font-size: 24px; font-weight: 600; line-height: 1.15; }
+.col-desc { font-family: var(--prose-font); font-size: 15px; color: var(--text-mid);
+  line-height: 1.5; margin-top: 8px; }
+
+/* ---- boxes ---- */
+.box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 2px;
+  padding: 16px; margin-bottom: 18px; transition: opacity 0.25s, border-color 0.2s; }
+.box-meta { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.role-badge, .medium-tag { font-family: 'Source Code Pro', monospace; font-size: 10px;
+  font-weight: 600; letter-spacing: 1.5px; padding: 3px 8px; border-radius: 1px;
+  text-transform: uppercase; }
+.role-SCHEMA  { background: var(--semantic-info-bg); color: var(--semantic-info); }
+.role-PROMPT  { background: var(--accent-bg); color: var(--accent); }
+.role-OUTPUT  { background: var(--semantic-validated-bg); color: var(--semantic-validated); }
+.role-CONTEXT { background: var(--semantic-draft-bg); color: var(--semantic-draft); }
+.medium-tag { border: 1px solid var(--divider-light); color: var(--text-muted); }
+.box-label { font-size: 15px; font-weight: 600; margin-bottom: 10px; word-break: break-all; }
+.seg { display: inline-flex; border: 1px solid var(--divider-light); border-radius: 2px;
+  margin-bottom: 10px; }
+.seg button { font-family: 'Source Code Pro', monospace; font-size: 10px; font-weight: 600;
+  letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 10px; border: none;
+  background: var(--card-bg); color: var(--text-muted); cursor: pointer; }
+.seg button.active { background: var(--accent); color: var(--card-bg); }
+.view { display: none; }
+.view.active { display: block; }
+.content-prose { font-family: var(--prose-font); font-size: 14px; line-height: 1.65;
+  color: var(--text-secondary); white-space: pre-wrap; word-break: break-word;
+  border-top: 1px solid var(--divider-light); padding-top: 10px; }
+.content-code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  line-height: 1.55; color: var(--text-secondary); white-space: pre-wrap;
+  word-break: break-word; border-top: 1px solid var(--divider-light); padding-top: 10px; }
+.content-img { max-width: 100%; display: block; border: 1px solid var(--divider-light); }
+.content-pointer { font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  color: var(--text-secondary); border-top: 1px solid var(--divider-light);
+  padding-top: 10px; word-break: break-all; }
+/* Very long content clamps so one prompt can't make a column 15,000px tall
+   and wreck every fit; SHOW ALL expands in place. */
+.content-clip { max-height: 1100px; overflow: hidden; position: relative; }
+.content-clip::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 70px; background: linear-gradient(transparent, var(--card-bg)); }
+.clip-toggle { display: block; width: 100%; margin-top: 6px; padding: 6px 0;
+  font-family: 'Source Code Pro', monospace; font-size: 10px; font-weight: 600;
+  letter-spacing: 1.5px; text-transform: uppercase; background: var(--card-bg);
+  border: 1px solid var(--divider-light); color: var(--text-muted); cursor: pointer; }
+.clip-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---- lane dimming ---- */
+body.lane-active .column.dimmed { opacity: 0.18; }
+body.lane-active .column.dimmed .content-img { max-height: 12px; object-fit: cover; }
+body.lane-active .column.lit .box { border-color: var(--accent); }
+
+/* ---- trace boxes (one entity's actual data at each stage — the n8n-run view) ---- */
+.trace-box { display: none; border: 2px solid var(--accent);
+  background: var(--accent-bg); }
+.trace-box.on { display: block; }
+body.lane-active .column.lit .trace-box { border-color: var(--accent); }
+.trace-step-num { font-family: 'Source Code Pro', monospace; font-size: 10px;
+  font-weight: 600; letter-spacing: 1.5px; padding: 3px 8px; border-radius: 1px;
+  background: var(--accent); color: var(--card-bg); }
+.trace-box .content-prose, .trace-box .content-code, .trace-box .content-pointer {
+  background: var(--card-bg); padding: 10px; border: 1px solid var(--divider-light);
+  border-top: 1px solid var(--divider-light); }
+.lane-bar button.trace-btn { border-style: dashed; border-color: var(--accent);
+  color: var(--accent); }
+.lane-bar button.trace-btn.active { background: var(--accent); border-style: solid;
+  color: var(--card-bg); }
+
+/* ---- screen-space chrome (1:1) ---- */
+.header-banner { position: fixed; top: 20px; left: 20px;
+  font-family: 'Source Code Pro', monospace; font-size: 11px; color: var(--text-muted);
+  padding: 8px 14px; background: var(--card-bg); border: 1px solid var(--divider-light);
+  letter-spacing: 1.5px; text-transform: uppercase; z-index: 20; max-width: 620px; }
+.header-banner .accent { color: var(--accent); }
+.lane-bar { position: fixed; top: 62px; left: 20px; display: flex; gap: 8px; z-index: 20; }
+.lane-bar button { font-family: 'Source Code Pro', monospace; font-size: 10px;
+  font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; padding: 6px 12px;
+  background: var(--card-bg); border: 1px solid var(--divider-light);
+  color: var(--text-muted); cursor: pointer; transition: border-color .2s, color .2s; }
+.lane-bar button:hover { border-color: var(--accent); color: var(--accent); }
+.lane-bar button.active { background: var(--accent); border-color: var(--accent);
+  color: var(--card-bg); }
+.hud { position: fixed; bottom: 20px; left: 20px; display: flex; gap: 8px;
+  font-family: 'Source Code Pro', monospace; font-size: 11px; color: var(--text-muted);
+  letter-spacing: 1.5px; text-transform: uppercase; z-index: 20; }
+.hud button, .hud .zoom-readout { background: var(--card-bg);
+  border: 1px solid var(--divider-light); color: var(--text-muted);
+  font-family: 'Source Code Pro', monospace; font-size: 11px; letter-spacing: 1.5px;
+  text-transform: uppercase; padding: 6px 12px; }
+.hud button { cursor: pointer; transition: border-color .2s, color .2s; }
+.hud button:hover { border-color: var(--accent); color: var(--accent); }
+.hud .zoom-readout { min-width: 64px; text-align: center; }
+.legend { position: fixed; bottom: 20px; right: 20px;
+  font-family: 'Source Code Pro', monospace; font-size: 10px; color: var(--text-muted);
+  background: var(--card-bg); border: 1px solid var(--divider-light); padding: 10px 14px;
+  z-index: 20; letter-spacing: 0.5px; line-height: 1.9; }
+.legend-row { display: flex; align-items: center; gap: 8px; }
+.legend-swatch { width: 18px; height: 12px; border-radius: 1px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="header-banner" id="banner"></div>
+<div class="lane-bar" id="laneBar"></div>
+<div id="viewport">
+  <div id="canvas">
+    <svg class="connectors" id="edges"></svg>
+    <div id="sources"></div>
+    <div id="columns"></div>
+  </div>
+</div>
+<div class="hud">
+  <button id="zoomOut">−</button>
+  <button id="zoomIn">+</button>
+  <button id="zoomReset">Reset</button>
+  <div class="zoom-readout" id="zoomReadout">100%</div>
+</div>
+<div class="legend">
+  <div class="legend-row"><span class="legend-swatch" style="background:var(--semantic-info-bg)"></span>SCHEMA</div>
+  <div class="legend-row"><span class="legend-swatch" style="background:var(--accent-bg)"></span>PROMPT</div>
+  <div class="legend-row"><span class="legend-swatch" style="background:var(--semantic-validated-bg)"></span>OUTPUT</div>
+  <div class="legend-row"><span class="legend-swatch" style="background:var(--semantic-draft-bg)"></span>CONTEXT</div>
+  <div class="legend-row">↑↓ zoom · drag to pan</div>
+</div>
+<script>
+const CANVAS_DATA = /*__DATA__*/null;
+
+const viewport = document.getElementById('viewport');
+const canvas = document.getElementById('canvas');
+const columnsEl = document.getElementById('columns');
+const sourcesEl = document.getElementById('sources');
+const edgesEl = document.getElementById('edges');
+let tx = 0, ty = 0, scale = 1;
+let activeLane = null;
+let activeTrace = null;
+
+function consumersOf(sourceId) {
+  return CANVAS_DATA.stages.filter(s => (s.inputs || []).includes(sourceId));
+}
+
+function tracePath(traceId) {
+  const t = CANVAS_DATA.traces.find(x => x.id === traceId);
+  // Source steps carry no stage — the path is the stage steps only.
+  return t ? [...new Set(t.steps.filter(s => s.stage).map(s => s.stage))] : null;
+}
+
+// The stages currently in focus (lane or trace), or null when nothing is toggled.
+function activeFlowStages() {
+  if (activeTrace) return tracePath(activeTrace);
+  if (activeLane) {
+    const l = CANVAS_DATA.lanes.find(x => x.id === activeLane);
+    return l ? l.stages : null;
+  }
+  return null;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderAll() {
+  document.title = CANVAS_DATA.title + ' — Pipeline Canvas';
+  document.getElementById('banner').innerHTML =
+    esc(CANVAS_DATA.pipeline) + ' <span class="accent">/</span> ' + esc(CANVAS_DATA.title) +
+    ' <span class="accent">—</span> Data Transformation Canvas';
+  CANVAS_DATA.stages.forEach((stage, i) => {
+    const col = document.createElement('div');
+    col.className = 'column';
+    col.dataset.stage = stage.id;
+    let head = '<div class="col-head"><div class="col-kicker">Stage ' + (i + 1) +
+      '</div><div class="col-title">' + esc(stage.title) + '</div>';
+    if (stage.description) head += '<div class="col-desc">' + esc(stage.description) + '</div>';
+    head += '</div>';
+    col.innerHTML = head;
+    stage.boxes.forEach(box => {
+      const el = document.createElement('div');
+      el.className = 'box';
+      let meta = '<div class="box-meta"><span class="role-badge role-' + box.role + '">' +
+        box.role + '</span>';
+      if (box.medium) meta += '<span class="medium-tag">' + esc(box.medium) + '</span>';
+      meta += '</div>';
+      let inner = meta + '<div class="box-label">' + esc(box.label) + '</div>';
+      if (box.views.length > 1) {
+        inner += '<div class="seg">' + box.views.map((v, vi) =>
+          '<button data-view="' + v.id + '"' + (vi === 0 ? ' class="active"' : '') + '>' +
+          esc(v.label) + '</button>').join('') + '</div>';
+      }
+      inner += box.views.map((v, vi) =>
+        '<div class="view' + (vi === 0 ? ' active' : '') + '" data-view="' + v.id + '">' +
+        v.html + '</div>').join('');
+      el.innerHTML = inner;
+      if (box.views.length > 1) {
+        el.querySelectorAll('.seg button').forEach(btn => btn.addEventListener('click', () => {
+          el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b === btn));
+          el.querySelectorAll('.view').forEach(v =>
+            v.classList.toggle('active', v.dataset.view === btn.dataset.view));
+          clampView(el.querySelector('.view.active'));
+          drawEdges();
+        }));
+      }
+      col.appendChild(el);
+    });
+    columnsEl.appendChild(col);
+  });
+  renderSources();
+  injectTraceBoxes();
+  document.querySelectorAll('.view.active').forEach(clampView);
+  buildLaneBar();
+  drawEdges();
+}
+
+function injectTraceBoxes() {
+  CANVAS_DATA.traces.forEach(trace => {
+    const perCol = {};  // steps sharing a column keep their declared order
+    trace.steps.forEach((step, i) => {
+      const el = document.createElement('div');
+      el.className = 'box trace-box';
+      el.dataset.trace = trace.id;
+      el.innerHTML =
+        '<div class="box-meta"><span class="trace-step-num">' +
+        String(i + 1).padStart(2, '0') + '</span>' +
+        '<span class="role-badge role-PROMPT">TRACE</span></div>' +
+        '<div class="box-label">' + esc(step.label) + '</div>' +
+        '<div class="view active">' + step.html + '</div>';
+      if (step.source) {
+        // Origin data rides inside its source card in the band.
+        sourcesEl.querySelector('[data-source="' + step.source + '"]').appendChild(el);
+        return;
+      }
+      // Stage trace boxes sit directly under the column header, above the anatomy.
+      const col = colFor(step.stage);
+      const offset = 1 + (perCol[step.stage] || 0);
+      col.insertBefore(el, col.children[offset] || null);
+      perCol[step.stage] = (perCol[step.stage] || 0) + 1;
+    });
+  });
+}
+
+function clampView(viewEl) {
+  if (!viewEl) return;
+  const block = viewEl.querySelector('.content-prose, .content-code');
+  if (!block || block.dataset.clampChecked) return;
+  block.dataset.clampChecked = '1';
+  if (block.scrollHeight <= 1400) return;
+  const lines = (block.textContent.match(/\n/g) || []).length + 1;
+  block.classList.add('content-clip');
+  const btn = document.createElement('button');
+  btn.className = 'clip-toggle';
+  btn.textContent = 'Show all · ' + lines + ' lines';
+  btn.addEventListener('click', () => {
+    const clipped = block.classList.toggle('content-clip');
+    btn.textContent = clipped ? 'Show all · ' + lines + ' lines' : 'Collapse';
+    drawEdges();
+  });
+  block.after(btn);
+}
+
+function renderSources() {
+  if (!CANVAS_DATA.sources.length) { sourcesEl.style.display = 'none'; return; }
+  CANVAS_DATA.sources.forEach(src => {
+    const el = document.createElement('div');
+    el.className = 'source-card';
+    el.dataset.source = src.id;
+    let inner = '<div class="source-kicker">Source' +
+      (src.medium ? ' <span class="medium-tag">' + esc(src.medium) + '</span>' : '') +
+      '</div><div class="source-title">' + esc(src.title) + '</div>';
+    if (src.description) inner += '<div class="source-desc">' + esc(src.description) + '</div>';
+    el.innerHTML = inner;
+    sourcesEl.appendChild(el);
+  });
+  layoutSources();
+}
+
+function layoutSources() {
+  // Re-runnable: card heights change when a trace box inside one toggles on.
+  if (!CANVAS_DATA.sources.length) return;
+  const placed = CANVAS_DATA.sources.map(src => {
+    const el = sourcesEl.querySelector('[data-source="' + src.id + '"]');
+    const cols = consumersOf(src.id).map(s => colFor(s.id));
+    const targetX = cols.reduce((acc, c) =>
+      acc + columnsEl.offsetLeft + c.offsetLeft + c.offsetWidth / 2, 0) / cols.length;
+    return { el, targetX };
+  });
+  // Center each card over its consumers; nudge right on overlap (stable sort by x).
+  placed.sort((a, b) => a.targetX - b.targetX);
+  let prevRight = -Infinity;
+  let maxH = 0;
+  placed.forEach(p => {
+    const x = Math.max(p.targetX - p.el.offsetWidth / 2, prevRight + 24, 20);
+    p.el.style.left = x + 'px';
+    prevRight = x + p.el.offsetWidth;
+    maxH = Math.max(maxH, p.el.offsetHeight);
+  });
+  sourcesEl.style.height = (maxH + 80) + 'px';
+}
+
+function colFor(stageId) { return columnsEl.querySelector('[data-stage="' + stageId + '"]'); }
+
+function headAnchor(col, side) {
+  // Anchor on the column header, in canvas coordinates (offsets ignore the transform).
+  const head = col.querySelector('.col-head');
+  const x = columnsEl.offsetLeft + col.offsetLeft + (side === 'right' ? col.offsetWidth : 0);
+  const y = columnsEl.offsetTop + col.offsetTop + head.offsetTop + head.offsetHeight / 2;
+  return { x, y };
+}
+
+function drawEdges() {
+  edgesEl.innerHTML = '';
+  edgesEl.setAttribute('width', canvas.scrollWidth);
+  edgesEl.setAttribute('height', canvas.scrollHeight);
+  const focus = activeFlowStages();
+  const lanes = focus ? [{stages: focus}]
+    : CANVAS_DATA.lanes.filter(l => l.id === 'main');
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const faint = getComputedStyle(document.documentElement).getPropertyValue('--text-faint').trim();
+  lanes.forEach(lane => {
+    for (let i = 0; i + 1 < lane.stages.length; i++) {
+      const a = headAnchor(colFor(lane.stages[i]), 'right');
+      const b = headAnchor(colFor(lane.stages[i + 1]), 'left');
+      const midX = (a.x + b.x) / 2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M' + a.x + ' ' + a.y + ' C' + midX + ' ' + a.y + ', ' +
+        midX + ' ' + b.y + ', ' + b.x + ' ' + b.y);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', focus ? accent : faint);
+      path.setAttribute('stroke-width', focus ? '3' : '2');
+      edgesEl.appendChild(path);
+    }
+  });
+  // Fan-in edges: source card bottom -> consuming stage header top. Dashed,
+  // external-toned, dimmed when a lane is active and the consumer isn't lit.
+  const external = getComputedStyle(document.documentElement)
+    .getPropertyValue('--external-border').trim();
+  const focusStages = focus;
+  CANVAS_DATA.sources.forEach(src => {
+    const card = sourcesEl.querySelector('[data-source="' + src.id + '"]');
+    if (!card) return;
+    const sx = sourcesEl.offsetTop + card.offsetTop + card.offsetHeight;
+    const sxMid = card.offsetLeft + card.offsetWidth / 2;
+    consumersOf(src.id).forEach(stage => {
+      const col = colFor(stage.id);
+      const head = col.querySelector('.col-head');
+      const txC = columnsEl.offsetLeft + col.offsetLeft + col.offsetWidth / 2;
+      const tyC = columnsEl.offsetTop + col.offsetTop + head.offsetTop;
+      const dimmed = focusStages && !focusStages.includes(stage.id);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M' + sxMid + ' ' + sx + ' C' + sxMid + ' ' + (sx + 50) +
+        ', ' + txC + ' ' + (tyC - 50) + ', ' + txC + ' ' + tyC);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', external);
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-dasharray', '6 5');
+      path.setAttribute('stroke-opacity', dimmed ? '0.12' : '0.8');
+      edgesEl.appendChild(path);
+    });
+  });
+}
+
+function buildLaneBar() {
+  const bar = document.getElementById('laneBar');
+  if (CANVAS_DATA.lanes.length <= 1 && !CANVAS_DATA.traces.length) {
+    bar.style.display = 'none'; return;
+  }
+  if (CANVAS_DATA.lanes.length > 1) {
+    CANVAS_DATA.lanes.forEach(lane => {
+      const btn = document.createElement('button');
+      btn.textContent = lane.label;
+      btn.dataset.lane = lane.id;
+      btn.addEventListener('click', () => toggleLane(lane.id));
+      bar.appendChild(btn);
+    });
+  }
+  CANVAS_DATA.traces.forEach(trace => {
+    const btn = document.createElement('button');
+    btn.className = 'trace-btn';
+    btn.textContent = trace.label;
+    btn.dataset.trace = trace.id;
+    btn.addEventListener('click', () => toggleTrace(trace.id));
+    bar.appendChild(btn);
+  });
+}
+
+// Lane and trace are mutually exclusive focus modes over the same dim/lit machinery.
+function applyFocus() {
+  const stages = activeFlowStages();
+  document.querySelectorAll('.lane-bar button').forEach(b => {
+    if (b.dataset.lane) b.classList.toggle('active', b.dataset.lane === activeLane);
+    if (b.dataset.trace) b.classList.toggle('active', b.dataset.trace === activeTrace);
+  });
+  document.body.classList.toggle('lane-active', !!stages);
+  document.querySelectorAll('.column').forEach(col => {
+    const lit = !stages || stages.includes(col.dataset.stage);
+    col.classList.toggle('dimmed', !!stages && !lit);
+    col.classList.toggle('lit', !!stages && lit);
+  });
+  const trace = CANVAS_DATA.traces.find(t => t.id === activeTrace);
+  const traceSources = trace
+    ? trace.steps.filter(s => s.source).map(s => s.source) : [];
+  document.querySelectorAll('.source-card').forEach(card => {
+    let lit;
+    if (trace) {
+      // A trace lights only the sources the entity actually came through.
+      lit = traceSources.includes(card.dataset.source);
+    } else {
+      lit = consumersOf(card.dataset.source)
+        .some(s => !stages || stages.includes(s.id));
+    }
+    card.classList.toggle('dimmed', !!stages && !lit);
+  });
+  document.querySelectorAll('.trace-box').forEach(b => {
+    const on = b.dataset.trace === activeTrace;
+    b.classList.toggle('on', on);
+    if (on) clampView(b.querySelector('.view.active'));
+  });
+  layoutSources();  // source-card heights change when their trace boxes toggle
+  drawEdges();
+  if (stages) {
+    const targets = stages.map(colFor).concat(traceSources.map(id =>
+      sourcesEl.querySelector('[data-source="' + id + '"]')));
+    fitToScreen(targets);
+  } else fitToScreen();
+}
+
+function toggleLane(laneId) {
+  activeLane = (activeLane === laneId) ? null : laneId;
+  activeTrace = null;
+  applyFocus();
+}
+
+function toggleTrace(traceId) {
+  activeTrace = (activeTrace === traceId) ? null : traceId;
+  activeLane = null;
+  applyFocus();
+}
+
+/* ---- pan / zoom ---- */
+function applyTransform() {
+  canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+  document.getElementById('zoomReadout').textContent = Math.round(scale * 100) + '%';
+}
+
+function zoomAt(cx, cy, factor) {
+  const next = Math.min(2.5, Math.max(0.08, scale * factor));
+  tx = cx - (cx - tx) * (next / scale);
+  ty = cy - (cy - ty) * (next / scale);
+  scale = next;
+  applyTransform();
+}
+
+viewport.addEventListener('pointerdown', e => {
+  // Pan from anywhere except controls and selectable text content — and
+  // preventDefault so the browser's native text-selection drag never starts.
+  if (e.target.closest('button, .content-prose, .content-code, .content-pointer')) return;
+  e.preventDefault();
+  viewport.classList.add('grabbing');
+  viewport.setPointerCapture(e.pointerId);
+  const sx = e.clientX - tx, sy = e.clientY - ty;
+  const move = ev => { tx = ev.clientX - sx; ty = ev.clientY - sy; applyTransform(); };
+  const up = () => {
+    viewport.classList.remove('grabbing');
+    viewport.removeEventListener('pointermove', move);
+    viewport.removeEventListener('pointerup', up);
+  };
+  viewport.addEventListener('pointermove', move);
+  viewport.addEventListener('pointerup', up);
+});
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  // Trackpad pinch arrives as wheel+ctrlKey — that zooms. A plain two-finger
+  // scroll pans the canvas.
+  if (e.ctrlKey || e.metaKey) {
+    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.08 : 1 / 1.08);
+  } else {
+    tx -= e.deltaX;
+    ty -= e.deltaY;
+    applyTransform();
+  }
+}, { passive: false });
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp') { e.preventDefault(); zoomAt(innerWidth / 2, innerHeight / 2, 1.12); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.12); }
+});
+document.getElementById('zoomIn').addEventListener('click', () =>
+  zoomAt(innerWidth / 2, innerHeight / 2, 1.15));
+document.getElementById('zoomOut').addEventListener('click', () =>
+  zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.15));
+document.getElementById('zoomReset').addEventListener('click', () => fitToScreen());
+
+function canvasRect(el) {
+  // Absolute canvas-space rect, whatever the offsetParent chain looks like.
+  let x = 0, y = 0, n = el;
+  while (n && n !== canvas) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; }
+  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function fitToScreen(els) {
+  // Fit into the band the HUD leaves free: banner+lane bar above, HUD below.
+  const band = { top: 110, right: 40, bottom: 80, left: 40 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const targets = els && els.length ? els
+    : (CANVAS_DATA.sources.length ? [sourcesEl, columnsEl] : [columnsEl]);
+  targets.forEach(el => {
+    const r = canvasRect(el);
+    minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
+  });
+  const availW = innerWidth - band.left - band.right;
+  const availH = innerHeight - band.top - band.bottom;
+  scale = Math.min(2.5, Math.max(0.08, Math.min(availW / (maxX - minX), availH / (maxY - minY))));
+  tx = band.left + (availW - (maxX - minX) * scale) / 2 - minX * scale;
+  ty = band.top + (availH - (maxY - minY) * scale) / 2 - minY * scale;
+  applyTransform();
+}
+
+renderAll();
+window.addEventListener('load', () => fitToScreen());
+window.addEventListener('resize', () => fitToScreen());
+// Web-font swap changes header heights after first paint; re-anchor edges and refit.
+document.fonts.ready.then(() => { drawEdges(); fitToScreen(); });
+</script>
+</body>
+</html>
